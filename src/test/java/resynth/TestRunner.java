@@ -11,7 +11,7 @@ import java.util.List;
  */
 public final class TestRunner {
     public static void main(String[] args) throws Exception {
-        Class<?>[] classes = {EngineTest.class};
+        Class<?>[] classes = {EngineTest.class, PngSynthTest.class};
         int passed = 0;
         List<String> failures = new ArrayList<>();
 

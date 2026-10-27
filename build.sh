@@ -3,8 +3,9 @@
 #   ./build.sh              compile the engine
 #   ./build.sh test         compile + run tests
 #   ./build.sh demo         compile + heal the images in examples/
+#   ./build.sh jar          build dist/resynth.jar (Java 8 bytecode) + sources jar
 #
-# Requires JDK 17+. Set JAVA_HOME, or edit JDK below.
+# Requires JDK 17+ (the jar itself targets Java 8). Set JAVA_HOME, or edit JDK below.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -17,6 +18,23 @@ cmd="${1:-build}"
 build() {
   mkdir -p out
   "$JAVAC" -d out src/main/java/resynth/*.java
+}
+
+# Library jar for external callers (ImageTrans / B4J). Java 8 bytecode so it runs on
+# any JRE the host app ships; no third-party dependencies.
+build_jar() {
+  rm -rf build/lib build/src dist
+  mkdir -p build/lib dist
+  "$JAVAC" --release 8 -Xlint:-options -d build/lib src/main/java/resynth/*.java
+  cp COPYING build/lib/COPYING
+  "$JDK/bin/jar" --create --file dist/resynth.jar -C build/lib .
+
+  mkdir -p build/src/src/main/java/resynth
+  cp src/main/java/resynth/*.java build/src/src/main/java/resynth/
+  cp COPYING build/src/COPYING
+  "$JDK/bin/jar" --create --file dist/resynth-sources.jar -C build/src .
+
+  echo "built dist/resynth.jar and dist/resynth-sources.jar"
 }
 
 case "$cmd" in
@@ -50,8 +68,11 @@ case "$cmd" in
     "$JAVA" -Xmx2g -cp out resynth.MainMask examples/cropped.png examples/cropped-mask.png out/demo/cropped-heal.png 30 500
     echo "results in out/demo/"
     ;;
+  jar|lib)
+    build_jar
+    ;;
   *)
-    echo "usage: $0 [build|test|demo]" >&2
+    echo "usage: $0 [build|test|demo|jar]" >&2
     exit 2
     ;;
 esac

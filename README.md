@@ -16,6 +16,7 @@ src/main/java/resynth/
   Main.java                      CLI：读 PNG → 按矩形选区 heal → 写 PNG
   MainMask.java                  CLI：读 图像 + 任意灰度掩码 → heal，并输出红色轮廓对比图
   ImageSynth.java                SimpleAPI：一张图 + 掩码（对应 imageSynth.c / adaptSimple.h）
+  PngSynth.java                  字节 API：PNG 编码字节进 → PNG 编码字节出（无文件 I/O）
   Engine.java                    引擎编排与准备（对应 engine.c）
   Synthesizer.java               热点：补丁匹配 computeBestFit + synthesize（对应 synthesize.h）
   Refiner.java                   多线程多轮 pass（对应 refinerThreaded.h / passes.h）
@@ -38,6 +39,7 @@ build.sh                         编译 / 测试 / 基准脚本
 ```sh
 ./build.sh          # 编译到 out/
 ./build.sh test     # 编译并跑测试
+./build.sh jar      # 构建 dist/resynth.jar + dist/resynth-sources.jar
 ```
 
 ### 按矩形选区修复
@@ -59,14 +61,72 @@ java -cp out resynth.MainMask examples/image.jpg examples/thresh.png out/image-h
 默认参数与原插件一致：`patchSize=30`、`maxProbeCount=200`、`sensitivityToOutliers=0.117`、
 `mapWeight=0.5`、`matchContextType=1`。
 
+### 字节 API（PNG 进 / PNG 出）
+
+不经过文件系统：图像和掩码都是 **PNG 编码的 `byte[]`**，返回修复后的 **PNG `byte[]`**。
+
+```java
+import resynth.PngSynth;
+import resynth.Params;
+
+byte[] healedPng = PngSynth.heal(imagePng, maskPng);                       // 默认参数
+byte[] healedPng = PngSynth.heal(imagePng, maskPng, params);               // 自定义参数
+byte[] healedPng = PngSynth.healRect(imagePng, x, y, w, h);                // 矩形选区
+byte[] healedPng = PngSynth.heal(imagePng, maskPng, params, progress, ctx, cancel);
+```
+
+- 输入必须是 PNG（校验 PNG 魔数），JPEG 等其它格式会被拒绝。
+- 掩码：**可见（alpha != 0）且非黑（亮度 > 0）**的像素为待修复区域，其余为语料。
+- 输出 PNG 的 alpha 通道与输入一致；alpha 不参与合成（不会被改写）。
+- 图像/掩码尺寸不一致、输入不是 PNG → `IllegalArgumentException`。
+- 引擎错误（如掩码全选导致无可用语料）→ `PngSynth.SynthException`，`errorCode()` 返回 `Engine.ERROR_*`。
+
+### 打包成 jar（ImageTrans / B4J）
+
+```sh
+./build.sh jar
+```
+
+产物：
+
+- `dist/resynth.jar`：运行库，**Java 8 字节码、零第三方依赖**，JDK 8+ 的 B4J / ImageTrans 都能加载。
+- `dist/resynth-sources.jar`：对应源码（GPL-3.0）。
+
+把 `resynth.jar` 放进 B4J 的 Additional Libraries 目录，插件工程里引用：
+
+```
+#AdditionalJar: resynth
+```
+
+B4J 调用示例（`ImageToPNGBytes` / `BytesToImage` 是 ImageTrans 插件里已有的辅助方法；
+图像和掩码都必须先编码成 PNG 字节）：
+
+```b4j
+Dim imagePng() As Byte = ImageToPNGBytes(origin)
+Dim maskPng() As Byte = ImageToPNGBytes(mask)
+
+Dim jo As JavaObject
+jo.InitializeStatic("resynth.PngSynth")
+Dim healedPng() As Byte = jo.RunMethod("heal", Array(imagePng, maskPng, 30, 500))
+
+Dim result As B4XBitmap = BytesToImage(healedPng)
+```
+
+注意：
+
+- `heal` 是同步调用（引擎内部用 8 线程），要放在后台线程 / `ResumableSub` 里执行，避免卡 UI。
+- 返回的 PNG 与输入同尺寸；输入有 alpha 则输出也有 alpha。
+- 引擎错误会以 Java 异常抛到 B4J（`Try/Catch LastException` 可处理）。
+
 ## 测试
 
 ```
-6 passed, 0 failed
+12 passed, 0 failed
 ```
 
 覆盖：目标区域被完全重写、区域外像素零改动、alpha 不被合成、空目标 / 空语料 / 过大 patch
-的错误码、度量表对称且单调、`GRand` 与标准 MT19937 一致（用 numpy `RandomState` 交叉验证）。
+的错误码、度量表对称且单调、`GRand` 与标准 MT19937 一致（用 numpy `RandomState` 交叉验证），
+以及 PNG 字节 API 的往返、alpha 保留、矩形模式、非 PNG 拒绝与尺寸校验。
 
 ## 基准（12 核，8 线程）
 
