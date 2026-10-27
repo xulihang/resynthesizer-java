@@ -15,6 +15,7 @@ OpenCV 管线对接，可以再加一层可选的 `Mat ↔ byte[]` 适配。
 src/main/java/resynth/
   Main.java                      CLI：读 PNG → 按矩形选区 heal → 写 PNG
   MainMask.java                  CLI：读 图像 + 任意灰度掩码 → heal，并输出红色轮廓对比图
+  HealCli.java                   可执行 jar 入口：PNG + 掩码 → 一个 PNG，退出码明确
   ImageSynth.java                SimpleAPI：一张图 + 掩码（对应 imageSynth.c / adaptSimple.h）
   PngSynth.java                  字节 API：PNG 编码字节进 → PNG 编码字节出（无文件 I/O）
   Engine.java                    引擎编排与准备（对应 engine.c）
@@ -39,7 +40,7 @@ build.sh                         编译 / 测试 / 基准脚本
 ```sh
 ./build.sh          # 编译到 out/
 ./build.sh test     # 编译并跑测试
-./build.sh jar      # 构建 dist/resynth.jar + dist/resynth-sources.jar
+./build.sh jar      # 构建可执行 dist/resynth.jar + dist/resynth-sources.jar
 ```
 
 ### 按矩形选区修复
@@ -75,13 +76,13 @@ byte[] healedPng = PngSynth.healRect(imagePng, x, y, w, h);                // �
 byte[] healedPng = PngSynth.heal(imagePng, maskPng, params, progress, ctx, cancel);
 ```
 
-- 输入必须是 PNG（校验 PNG 魔数），JPEG 等其它格式会被拒绝。
+- 输入必须是 PNG（校验 PNG 魔数），JPEG 等其它格式会被拒绝；CLI（`HealCli`）会自动把其它格式转成 PNG，字节 API 不会。
 - 掩码：**可见（alpha != 0）且非黑（亮度 > 0）**的像素为待修复区域，其余为语料。
 - 输出 PNG 的 alpha 通道与输入一致；alpha 不参与合成（不会被改写）。
 - 图像/掩码尺寸不一致、输入不是 PNG → `IllegalArgumentException`。
 - 引擎错误（如掩码全选导致无可用语料）→ `PngSynth.SynthException`，`errorCode()` 返回 `Engine.ERROR_*`。
 
-### 打包成 jar（ImageTrans / B4J）
+### 可执行 jar（ImageTrans / 脚本调用）
 
 ```sh
 ./build.sh jar
@@ -89,44 +90,57 @@ byte[] healedPng = PngSynth.heal(imagePng, maskPng, params, progress, ctx, cance
 
 产物：
 
-- `dist/resynth.jar`：运行库，**Java 8 字节码、零第三方依赖**，JDK 8+ 的 B4J / ImageTrans 都能加载。
+- `dist/resynth.jar`：**可执行 jar**，Java 8 字节码、零第三方依赖。
 - `dist/resynth-sources.jar`：对应源码（GPL-3.0）。
 
-把 `resynth.jar` 放进 B4J 的 Additional Libraries 目录，插件工程里引用：
+命令行用法（只写一个输出文件，不产生其他文件）：
 
-```
-#AdditionalJar: resynth
+```sh
+java -jar resynth.jar <image> <mask> <out.png> [patchSize] [maxProbeCount] [neighborWeight]
 ```
 
-B4J 调用示例（`ImageToPNGBytes` / `BytesToImage` 是 ImageTrans 插件里已有的辅助方法；
-图像和掩码都必须先编码成 PNG 字节）：
+- 图像可以是 PNG、JPEG 或任何 ImageIO 能读的格式（内部先转成 PNG）；**输出始终是 PNG**。
+- 掩码推荐用 PNG：JPEG 的压缩噪点会影响选区。掩码中**可见且非黑**的像素被修复。
+- 退出码：`0` 成功；`2` 参数错误；`1` 读取/格式/尺寸错误；其它为 `Engine.ERROR_*`。
+- 成功时 stdout 只有一行摘要，失败信息写到 stderr。
+
+ImageTrans / B4J 里建议用 `Shell` 调独立进程（`ImageToPNGBytes` / `BytesToImage` 是插件里已有的辅助方法）：
 
 ```b4j
-Dim imagePng() As Byte = ImageToPNGBytes(origin)
-Dim maskPng() As Byte = ImageToPNGBytes(mask)
+Dim imagePath As String = File.Combine(File.DirTemp, "rt-image.png")
+Dim maskPath As String = File.Combine(File.DirTemp, "rt-mask.png")
+Dim outPath As String = File.Combine(File.DirTemp, "rt-out.png")
+File.WriteBytes(File.DirTemp, "rt-image.png", ImageToPNGBytes(origin))
+File.WriteBytes(File.DirTemp, "rt-mask.png", ImageToPNGBytes(mask))
 
-Dim jo As JavaObject
-jo.InitializeStatic("resynth.PngSynth")
-Dim healedPng() As Byte = jo.RunMethod("heal", Array(imagePng, maskPng, 30, 500))
+Dim sys As JavaObject
+sys.InitializeStatic("java.lang.System")
+Dim javaHome As String = sys.RunMethod("getProperty", Array("java.home"))
+Dim javaExe As String = File.Combine(File.Combine(javaHome, "bin"), "java.exe") ' macOS/Linux 用 java
 
-Dim result As B4XBitmap = BytesToImage(healedPng)
+Dim sh As Shell
+sh.Initialize("sh", javaExe, Array("-jar", jarPath, imagePath, maskPath, outPath, "30", "500"))
+sh.Run(-1)
+Wait For sh_ProcessCompleted (Success As Boolean, ExitCode As Int, StdOut As String, StdErr As String)
+If Success Then
+    Dim result As B4XBitmap = BytesToImage(File.ReadBytes(File.DirTemp, "rt-out.png"))
+End If
 ```
 
-注意：
-
-- `heal` 是同步调用（引擎内部用 8 线程），要放在后台线程 / `ResumableSub` 里执行，避免卡 UI。
-- 返回的 PNG 与输入同尺寸；输入有 alpha 则输出也有 alpha。
-- 引擎错误会以 Java 异常抛到 B4J（`Try/Catch LastException` 可处理）。
+- `jarPath` 指向随安装包分发的 `resynth.jar`；`bytes` API（`PngSynth`）也可直接调用，但同进程加载 GPL 代码会带来 combined work 风险，ImageTrans 集成推荐走独立进程。
+- 独立进程 + 临时文件交换，ImageTrans 不需要把 jar 放进自己的 classpath；分发这个 jar 时附上 `resynth-sources.jar` 和 `COPYING` 即满足 GPL 的源码要求。
+- `Shell.Run` 会阻塞当前线程，放到后台线程 / `ResumableSub`。
 
 ## 测试
 
 ```
-12 passed, 0 failed
+15 passed, 0 failed
 ```
 
 覆盖：目标区域被完全重写、区域外像素零改动、alpha 不被合成、空目标 / 空语料 / 过大 patch
 的错误码、度量表对称且单调、`GRand` 与标准 MT19937 一致（用 numpy `RandomState` 交叉验证），
-以及 PNG 字节 API 的往返、alpha 保留、矩形模式、非 PNG 拒绝与尺寸校验。
+以及 PNG 字节 API 的往返、alpha 保留、矩形模式、非 PNG 拒绝、尺寸校验，和 CLI 的 PNG/JPG
+输入、不可读输入与输出始终为 PNG。
 
 ## 基准（12 核，8 线程）
 

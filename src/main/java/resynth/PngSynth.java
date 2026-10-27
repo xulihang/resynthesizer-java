@@ -123,13 +123,16 @@ public final class PngSynth {
         return encodePng(fromPixels(pixels, width, height, alpha));
     }
 
-    private static BufferedImage decodePng(byte[] png, String what) throws IOException {
-        if (png == null || png.length < PNG_SIGNATURE.length) {
-            throw new IllegalArgumentException(what + " is not a PNG");
-        }
+    static boolean isPng(byte[] bytes) {
+        if (bytes == null || bytes.length < PNG_SIGNATURE.length) return false;
         for (int i = 0; i < PNG_SIGNATURE.length; i++) {
-            if (png[i] != PNG_SIGNATURE[i]) throw new IllegalArgumentException(what + " is not a PNG");
+            if (bytes[i] != PNG_SIGNATURE[i]) return false;
         }
+        return true;
+    }
+
+    private static BufferedImage decodePng(byte[] png, String what) throws IOException {
+        if (!isPng(png)) throw new IllegalArgumentException(what + " is not a PNG");
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(png));
         if (image == null) throw new IOException("cannot decode " + what + " PNG");
         return image;

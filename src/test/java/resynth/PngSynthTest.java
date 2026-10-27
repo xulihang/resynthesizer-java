@@ -7,6 +7,8 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -108,6 +110,72 @@ class PngSynthTest {
         PngSynth.SynthException e = assertThrows(PngSynth.SynthException.class,
                 () -> PngSynth.heal(png(pattern()), png(allWhite)));
         assertEquals(Engine.ERROR_EMPTY_CORPUS, e.errorCode());
+    }
+
+    @Test
+    void cliWritesOneOutputPng() throws Exception {
+        Path dir = Files.createTempDirectory("resynth-cli");
+        Path in = dir.resolve("in.png");
+        Path maskPath = dir.resolve("mask.png");
+        Path out = dir.resolve("out.png");
+        BufferedImage clean = pattern();
+        Files.write(in, png(withBlackRect(clean)));
+        Files.write(maskPath, png(mask()));
+
+        int rc = HealCli.run(new String[]{in.toString(), maskPath.toString(), out.toString(), "16", "100"});
+
+        assertEquals(0, rc);
+        assertTrue(Files.exists(out), "CLI must write the output PNG");
+        BufferedImage result = decode(Files.readAllBytes(out));
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                if (!inside(x, y)) assertEquals(clean.getRGB(x, y), result.getRGB(x, y));
+    }
+
+    @Test
+    void cliAcceptsJpegImageAndAlwaysWritesPng() throws Exception {
+        Path dir = Files.createTempDirectory("resynth-cli-jpg");
+        Path in = dir.resolve("in.jpg");
+        Path maskPath = dir.resolve("mask.png");
+        Path out = dir.resolve("out.png");
+        byte[] jpeg = encode(withBlackRect(pattern()), "jpg");
+        BufferedImage decodedJpeg = ImageIO.read(new ByteArrayInputStream(jpeg));
+        assertNotNull(decodedJpeg);
+        Files.write(in, jpeg);
+        Files.write(maskPath, png(mask()));
+
+        int rc = HealCli.run(new String[]{in.toString(), maskPath.toString(), out.toString(), "16", "100"});
+
+        assertEquals(0, rc);
+        byte[] outBytes = Files.readAllBytes(out);
+        assertTrue(PngSynth.isPng(outBytes), "output must always be PNG");
+        BufferedImage result = decode(outBytes);
+        int insideChanged = 0;
+        for (int y = 0; y < H; y++) {
+            for (int x = 0; x < W; x++) {
+                if (inside(x, y)) {
+                    if (result.getRGB(x, y) != decodedJpeg.getRGB(x, y)) insideChanged++;
+                } else {
+                    assertEquals(decodedJpeg.getRGB(x, y), result.getRGB(x, y));
+                }
+            }
+        }
+        assertTrue(insideChanged > 0, "target must be healed");
+    }
+
+    @Test
+    void cliRejectsUnreadableImageAndWritesNothing() throws Exception {
+        Path dir = Files.createTempDirectory("resynth-cli-bad");
+        Path in = dir.resolve("in.dat");
+        Path maskPath = dir.resolve("mask.png");
+        Path out = dir.resolve("out.png");
+        Files.write(in, new byte[]{1, 2, 3, 4});
+        Files.write(maskPath, png(mask()));
+
+        int rc = HealCli.run(new String[]{in.toString(), maskPath.toString(), out.toString()});
+
+        assertEquals(1, rc);
+        assertFalse(Files.exists(out));
     }
 
     // ------------------------------------------------------------------

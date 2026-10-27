@@ -3,7 +3,7 @@
 #   ./build.sh              compile the engine
 #   ./build.sh test         compile + run tests
 #   ./build.sh demo         compile + heal the images in examples/
-#   ./build.sh jar          build dist/resynth.jar (Java 8 bytecode) + sources jar
+#   ./build.sh jar          build dist/resynth.jar (executable, Java 8) + sources jar
 #
 # Requires JDK 17+ (the jar itself targets Java 8). Set JAVA_HOME, or edit JDK below.
 set -euo pipefail
@@ -20,14 +20,20 @@ build() {
   "$JAVAC" -d out src/main/java/resynth/*.java
 }
 
-# Library jar for external callers (ImageTrans / B4J). Java 8 bytecode so it runs on
+# Executable jar for external callers (ImageTrans / B4J). Java 8 bytecode so it runs on
 # any JRE the host app ships; no third-party dependencies.
 build_jar() {
   rm -rf build/lib build/src dist
   mkdir -p build/lib dist
   "$JAVAC" --release 8 -Xlint:-options -d build/lib src/main/java/resynth/*.java
   cp COPYING build/lib/COPYING
-  "$JDK/bin/jar" --create --file dist/resynth.jar -C build/lib .
+  cat > build/MANIFEST.MF <<'EOF'
+Manifest-Version: 1.0
+Main-Class: resynth.HealCli
+Implementation-Title: resynth
+Implementation-Version: 0.1
+EOF
+  "$JDK/bin/jar" --create --file dist/resynth.jar --manifest build/MANIFEST.MF -C build/lib .
 
   mkdir -p build/src/src/main/java/resynth
   cp src/main/java/resynth/*.java build/src/src/main/java/resynth/
