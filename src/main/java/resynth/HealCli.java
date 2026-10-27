@@ -17,12 +17,13 @@ import java.util.Arrays;
  * Command-line heal: image in (PNG, JPEG, or anything ImageIO reads), one PNG out.
  * No extra files, no GUI.
  *
- * <p>Usage: {@code java -jar resynth.jar [--regions [--margin N] [--cell N]]
+ * <p>Usage: {@code java -jar resynth.jar [--whole] [--margin N] [--cell N]
  * <image> <mask> <out.png> [patchSize] [maxProbeCount] [neighborWeight] [maxPasses]}
  *
- * <p>{@code --regions} heals clusters of mask pixels in separate local crops instead of
- * the whole image. This keeps the corpus local and is much faster on large images with
- * sparse masks; pixels outside the mask are still copied from the input unchanged.
+ * <p>By default the mask is clustered and each cluster is healed in a local crop. This
+ * keeps the corpus local and is much faster on large images with sparse masks; pixels
+ * outside the mask are still copied from the input unchanged. {@code --whole} disables
+ * clustering and heals the full image in one engine run.
  *
  * <p>Exit codes: 0 success, 2 usage / bad numbers, 1 unreadable input,
  * otherwise the {@code Engine.ERROR_*} code. The mask selects visible, non-black pixels.
@@ -37,14 +38,17 @@ public final class HealCli {
 
     /** Runs the CLI without exiting the JVM (used by tests). */
     static int run(String[] args) {
-        boolean regions = false;
+        boolean regions = true;
         int margin = -1;
         int cell = 32;
         int first = 0;
         try {
             while (first < args.length && args[first].startsWith("--")) {
                 String a = args[first];
-                if ("--regions".equals(a)) {
+                if ("--whole".equals(a)) {
+                    regions = false;
+                    first++;
+                } else if ("--regions".equals(a)) {
                     regions = true;
                     first++;
                 } else if (a.startsWith("--margin=")) {
@@ -311,12 +315,13 @@ public final class HealCli {
     }
 
     private static void usage() {
-        System.err.println("Usage: java -jar resynth.jar [--regions [--margin N] [--cell N]]"
+        System.err.println("Usage: java -jar resynth.jar [--whole] [--margin N] [--cell N]"
                 + " <image> <mask> <out.png>");
         System.err.println("       [patchSize] [maxProbeCount] [neighborWeight] [maxPasses]");
-        System.err.println("  --regions: heal mask clusters in local crops (faster on large images)");
-        System.err.println("  --margin:  context around each cluster (default max(32, 2*patchSize))");
-        System.err.println("  --cell:    clustering grid in pixels (default 32)");
+        System.err.println("  default:  cluster mask pixels and heal each cluster in a local crop");
+        System.err.println("  --whole:  heal the whole image in one engine run (slower on large images)");
+        System.err.println("  --margin: context around each cluster (default max(32, 2*patchSize))");
+        System.err.println("  --cell:   clustering grid in pixels (default 32)");
         System.err.println("  image: PNG, JPEG or any other format ImageIO can read; output is always PNG.");
         System.err.println("  mask:  PNG recommended (JPEG artifacts can alter the selection);");
         System.err.println("         visible non-black mask pixels are healed.");

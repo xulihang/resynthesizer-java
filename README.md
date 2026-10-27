@@ -96,18 +96,18 @@ byte[] healedPng = PngSynth.heal(imagePng, maskPng, params, progress, ctx, cance
 命令行用法（只写一个输出文件，不产生其他文件）：
 
 ```sh
-java -jar resynth.jar [--regions [--margin N] [--cell N]] \
+java -jar resynth.jar [--whole] [--margin N] [--cell N] \
   <image> <mask> <out.png> [patchSize] [maxProbeCount] [neighborWeight] [maxPasses]
 ```
 
 - 图像可以是 PNG、JPEG 或任何 ImageIO 能读的格式（内部先转成 PNG）；**输出始终是 PNG**。
 - 掩码推荐用 PNG：JPEG 的压缩噪点会影响选区。掩码中**可见且非黑**的像素被修复。
-- `--regions`：把遮罩聚类成多个局部区域分别修复，大图明显更快；区域外像素逐字节不变。
+- **默认按遮罩聚类成多个局部区域分别修复**；区域外像素逐字节不变。`--whole` 关闭聚类、整图处理。
 - `--margin`：每个区域保留的上下文，默认 `max(32, 2*patchSize)`；`--cell`：聚类网格，默认 32。
 - 退出码：`0` 成功；`2` 参数错误；`1` 读取/格式/尺寸错误；其它为 `Engine.ERROR_*`。
 - 成功时 stdout 只有一行摘要，失败信息写到 stderr。
 - 线程数默认 8，可用 `java -Dresynth.threads=12 -jar ...` 提高。
-- `maxPasses` 1..6，默认 6；`maxProbeCount` 默认 200。大图建议先试 `--regions` 搭配 `30 200 0 3`。
+- `maxPasses` 1..6，默认 6；`maxProbeCount` 默认 200。大图默认命令即可，`30 200 0 3` 更快。
 
 ImageTrans / B4J 里建议用 `Shell` 调独立进程（`ImageToPNGBytes` / `BytesToImage` 是插件里已有的辅助方法）：
 
@@ -124,7 +124,7 @@ Dim javaHome As String = sys.RunMethod("getProperty", Array("java.home"))
 Dim javaExe As String = File.Combine(File.Combine(javaHome, "bin"), "java.exe") ' macOS/Linux 用 java
 
 Dim sh As Shell
-sh.Initialize("sh", javaExe, Array("-Dresynth.threads=12", "-jar", jarPath, "--regions", imagePath, maskPath, outPath, "30", "200", "0", "3"))
+sh.Initialize("sh", javaExe, Array("-Dresynth.threads=12", "-jar", jarPath, imagePath, maskPath, outPath, "30", "200", "0", "3"))
 sh.Run(-1)
 Wait For sh_ProcessCompleted (Success As Boolean, ExitCode As Int, StdOut As String, StdErr As String)
 If Success Then
@@ -144,16 +144,18 @@ End If
 
 | 配置 | 耗时 |
 |---|---|
-| 30 / 500 / 6 pass / 8 线程（旧版引擎） | 140 s |
-| 30 / 500 / 6 pass / 8 线程（当前引擎） | 76 s |
-| 30 / 200 / 6 pass / 12 线程 | 35 s |
-| 30 / 200 / 3 pass / 12 线程 | 28 s |
-| **30 / 200 / 3 pass / 12 线程 + `--regions`（12 个区域）** | **10 s** |
-| 30 / 100 / 2 pass / 12 线程 | 18 s |
+| 旧版引擎，30 / 500 / 6，8 线程，`--whole` | 140 s |
+| 当前引擎，30 / 500 / 6，8 线程，`--whole` | 76 s |
+| 当前引擎，30 / 200 / 6，12 线程，`--whole` | 35 s |
+| 当前引擎，30 / 200 / 3，12 线程，`--whole` | 28 s |
+| **默认命令（30 / 200 / 6，8 线程，regions，12 个区域）** | **12 s** |
+| 30 / 200 / 3，12 线程，regions（12 个区域） | 10 s |
+| 30 / 100 / 2，12 线程，`--whole` | 18 s |
 
 建议顺序：
 
-1. 大图先加 `--regions` 和 `-Dresynth.threads=<核数>`，这是收益最大的一步。
+1. 直接 `java -jar resynth.jar <image> <mask> <out.png>`，默认就是 regions；大图再加
+   `-Dresynth.threads=<核数>`。
 2. 再降 `maxPasses`（6 → 3），然后降 `maxProbeCount`（500/200 → 100）。
 3. `maxProbeCount` 很低时偶尔会在平滑区域留下亮斑（补丁中心像素不参与匹配），
    100/2 这种极限配置建议先小图验证；稳妥用 200/3。
@@ -161,8 +163,9 @@ End If
 
 关于“按区域处理”：
 
+- 默认开启 `--regions`（无需传参）；`--whole` 关闭聚类，用于和整图结果对比。
 - 把整张遮罩裁成**一个**大 bbox 收益有限（本例约 15%），因为目标像素数没变。
-- 按遮罩**聚类成多个局部区域**（`--regions`）收益明显：本例分成 12 个区域（cell 32、margin 60），
+- 按遮罩**聚类成多个局部区域**收益明显：本例分成 12 个区域（cell 32、margin 60），
   30/200/3 + 12 线程从 28 s 降到 **10 s**；区域外像素逐字节不变（已用 `DiffOutside` 校验为 0）。
 - 原理：每个区域只加载自己的语料，offsets/corpus 小很多、缓存命中更好，随机探针也更集中；
   目标像素总数不变，所以这是局部性/常数因子收益，可以和探针、pass 调优叠加。

@@ -122,7 +122,8 @@ class PngSynthTest {
         Files.write(in, png(withBlackRect(clean)));
         Files.write(maskPath, png(mask()));
 
-        int rc = HealCli.run(new String[]{in.toString(), maskPath.toString(), out.toString(), "16", "100"});
+        int rc = HealCli.run(new String[]{"--whole", in.toString(), maskPath.toString(),
+                out.toString(), "16", "100"});
 
         assertEquals(0, rc);
         assertTrue(Files.exists(out), "CLI must write the output PNG");
