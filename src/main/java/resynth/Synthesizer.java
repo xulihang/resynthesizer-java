@@ -43,7 +43,6 @@ final class Synthesizer {
     // fast paths
     private final int targetDepth;
     private final int corpusDepth;
-    private final int[] corpusMaskBase; // offset of mask byte for each corpus pixel
     private final byte[] targetPix;
     private final byte[] corpusPix;
     private final int[] recentInts;
@@ -94,9 +93,6 @@ final class Synthesizer {
         this.mapsMetric = metrics.mapsMetric;
         this.targetDepth = targetMap.depth;
         this.corpusDepth = corpusMap.depth;
-        int corpusSize = corpusMap.width * corpusMap.height;
-        this.corpusMaskBase = new int[corpusSize];
-        for (int i = 0; i < corpusSize; i++) corpusMaskBase[i] = i * corpusDepth;
         this.rnd = new java.util.SplittableRandom(parameters.randomSeed);
         this.useContext = parameterUseContext(parameters);
         this.isAlphaTarget = indices.isAlphaTarget;
@@ -216,13 +212,13 @@ final class Synthesizer {
             int offY = neighborOffY[i];
             int px = pointX + offX;
             int py = pointY + offY;
+            int ci = (px < 0 || py < 0 || px >= cw || py >= ch) ? -1 : px + py * cw;
             // clippedOrMaskedCorpus
-            if (px < 0 || py < 0 || px >= cw || py >= ch
-                    || (corpusPix[corpusMaskBase[px + py * cw]] & 0xff) != Engine.MASK_TOTALLY_SELECTED) {
+            if (ci < 0 || (corpusPix[ci * corpusDepth] & 0xff) != Engine.MASK_TOTALLY_SELECTED) {
                 // max weighted difference for this neighbor outside corpus
                 sum += Metrics.MAX_WEIGHT * indices.imgMatchBpp + mm[0] * indices.mapMatchBpp;
             } else {
-                int cbase = (px + py * cw) * corpusDepth;
+                int cbase = ci * corpusDepth;
                 int tbase = i * 8;
                 if (i != 0) {
                     if (simpleMode) {
@@ -302,7 +298,7 @@ final class Synthesizer {
                     // clippedOrMaskedCorpus
                     if (corpusX < 0 || corpusY < 0 || corpusX >= corpusMap.width || corpusY >= corpusMap.height) continue;
                     int ci = corpusX + corpusY * corpusMap.width;
-                    if ((corpusPix[corpusMaskBase[ci]] & 0xff) != Engine.MASK_TOTALLY_SELECTED) continue;
+                    if ((corpusPix[ci * corpusDepth] & 0xff) != Engine.MASK_TOTALLY_SELECTED) continue;
                     if (recentInts[ci] == targetIndex) continue; // Heuristic 2
                     isPerfectMatch = computeBestFit(corpusX, corpusY, best);
                     if (isPerfectMatch) break;

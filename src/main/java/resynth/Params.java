@@ -22,10 +22,13 @@ public final class Params {
     public long randomSeed = 1198472L;
 
     /*
-     * Java-only extensions (not in the C engine). Both 0 reproduces the C engine exactly.
+     * Java-only extensions (not in the C engine). Defaults reproduce the C engine.
      */
     /** Gaussian sigma (pixels) weighting patch elements by distance from the patch centre. 0 = off. */
     public float neighborWeight = 0f;
+
+    /** Refinement passes, 1..6. Lower is faster; the C engine runs up to 6. */
+    public int maxPasses = 6;
 
     public static Params defaults() {
         return new Params();

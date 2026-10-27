@@ -14,7 +14,7 @@ import java.nio.file.Paths;
  * No extra files, no GUI.
  *
  * <p>Usage: {@code java -jar resynth.jar <image> <mask> <out.png>
- * [patchSize] [maxProbeCount] [neighborWeight]}
+ * [patchSize] [maxProbeCount] [neighborWeight] [maxPasses]}
  *
  * <p>Exit codes: 0 success, 2 usage / bad numbers, 1 unreadable input,
  * otherwise the {@code Engine.ERROR_*} code. The mask selects visible, non-black pixels.
@@ -33,7 +33,7 @@ public final class HealCli {
             usage();
             return 2;
         }
-        if (args.length > 6) {
+        if (args.length > 7) {
             usage();
             return 2;
         }
@@ -47,13 +47,16 @@ public final class HealCli {
             if (args.length > 3) params.patchSize = Integer.parseInt(args[3]);
             if (args.length > 4) params.maxProbeCount = Integer.parseInt(args[4]);
             if (args.length > 5) params.neighborWeight = Float.parseFloat(args[5]);
+            if (args.length > 6) params.maxPasses = Integer.parseInt(args[6]);
         } catch (NumberFormatException e) {
             System.err.println("invalid number: " + e.getMessage());
             usage();
             return 2;
         }
-        if (params.patchSize <= 0 || params.maxProbeCount <= 0 || params.neighborWeight < 0) {
-            System.err.println("patchSize and maxProbeCount must be positive; neighborWeight must be >= 0");
+        if (params.patchSize <= 0 || params.maxProbeCount <= 0
+                || params.neighborWeight < 0 || params.maxPasses < 1) {
+            System.err.println("patchSize, maxProbeCount and maxPasses must be positive;"
+                    + " neighborWeight must be >= 0");
             return 2;
         }
 
@@ -96,9 +99,11 @@ public final class HealCli {
 
     private static void usage() {
         System.err.println("Usage: java -jar resynth.jar <image> <mask> <out.png>"
-                + " [patchSize] [maxProbeCount] [neighborWeight]");
+                + " [patchSize] [maxProbeCount] [neighborWeight] [maxPasses]");
         System.err.println("  image: PNG, JPEG or any other format ImageIO can read; output is always PNG.");
         System.err.println("  mask:  PNG recommended (JPEG artifacts can alter the selection);");
         System.err.println("         visible non-black mask pixels are healed.");
+        System.err.println("  speed: maxProbeCount=100, maxPasses=2 is much faster than 500/6;");
+        System.err.println("         add -Dresynth.threads=N before -jar to use more than 8 threads.");
     }
 }

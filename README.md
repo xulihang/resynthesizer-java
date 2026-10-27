@@ -60,7 +60,7 @@ java -cp out resynth.MainMask examples/image.jpg examples/thresh.png out/image-h
 ```
 
 默认参数与原插件一致：`patchSize=30`、`maxProbeCount=200`、`sensitivityToOutliers=0.117`、
-`mapWeight=0.5`、`matchContextType=1`。
+`mapWeight=0.5`、`matchContextType=1`；Java 扩展默认 `neighborWeight=0`、`maxPasses=6`。
 
 ### 字节 API（PNG 进 / PNG 出）
 
@@ -96,13 +96,15 @@ byte[] healedPng = PngSynth.heal(imagePng, maskPng, params, progress, ctx, cance
 命令行用法（只写一个输出文件，不产生其他文件）：
 
 ```sh
-java -jar resynth.jar <image> <mask> <out.png> [patchSize] [maxProbeCount] [neighborWeight]
+java -jar resynth.jar <image> <mask> <out.png> [patchSize] [maxProbeCount] [neighborWeight] [maxPasses]
 ```
 
 - 图像可以是 PNG、JPEG 或任何 ImageIO 能读的格式（内部先转成 PNG）；**输出始终是 PNG**。
 - 掩码推荐用 PNG：JPEG 的压缩噪点会影响选区。掩码中**可见且非黑**的像素被修复。
 - 退出码：`0` 成功；`2` 参数错误；`1` 读取/格式/尺寸错误；其它为 `Engine.ERROR_*`。
 - 成功时 stdout 只有一行摘要，失败信息写到 stderr。
+- 线程数默认 8，可用 `java -Dresynth.threads=12 -jar ...` 提高。
+- `maxPasses` 1..6，默认 6；`maxProbeCount` 默认 200。大图建议先试 `30 200 0 3`。
 
 ImageTrans / B4J 里建议用 `Shell` 调独立进程（`ImageToPNGBytes` / `BytesToImage` 是插件里已有的辅助方法）：
 
@@ -119,7 +121,7 @@ Dim javaHome As String = sys.RunMethod("getProperty", Array("java.home"))
 Dim javaExe As String = File.Combine(File.Combine(javaHome, "bin"), "java.exe") ' macOS/Linux 用 java
 
 Dim sh As Shell
-sh.Initialize("sh", javaExe, Array("-jar", jarPath, imagePath, maskPath, outPath, "30", "500"))
+sh.Initialize("sh", javaExe, Array("-Dresynth.threads=12", "-jar", jarPath, imagePath, maskPath, outPath, "30", "200", "0", "3"))
 sh.Run(-1)
 Wait For sh_ProcessCompleted (Success As Boolean, ExitCode As Int, StdOut As String, StdErr As String)
 If Success Then
@@ -130,6 +132,35 @@ End If
 - `jarPath` 指向随安装包分发的 `resynth.jar`；`bytes` API（`PngSynth`）也可直接调用，但同进程加载 GPL 代码会带来 combined work 风险，ImageTrans 集成推荐走独立进程。
 - 独立进程 + 临时文件交换，ImageTrans 不需要把 jar 放进自己的 classpath；分发这个 jar 时附上 `resynth-sources.jar` 和 `COPYING` 即满足 GPL 的源码要求。
 - `Shell.Run` 会阻塞当前线程，放到后台线程 / `ResumableSub`。
+
+### 大图调优
+
+耗时大致与 `目标像素数 × maxProbeCount × 补丁邻居数 × pass 数 / 线程数` 成正比；
+整图尺寸主要影响内存和 offsets 初始化。以下是一张 4962×3509、目标 56.9 万像素（3.27%）的图、
+12 核机器上的实测：
+
+| 配置 | 耗时 |
+|---|---|
+| 30 / 500 / 6 pass / 8 线程（旧版引擎） | 140 s |
+| 30 / 500 / 6 pass / 8 线程（当前引擎） | 76 s |
+| 30 / 200 / 6 pass / 12 线程 | 35 s |
+| 30 / 200 / 3 pass / 12 线程 | 28 s |
+| 30 / 100 / 2 pass / 12 线程 | 18 s |
+
+建议顺序：
+
+1. 默认参数 + `-Dresynth.threads=<核数>`，通常已经快 2–4 倍。
+2. 再降 `maxPasses`（6 → 3），然后降 `maxProbeCount`（500/200 → 100）。
+3. `maxProbeCount` 很低时偶尔会在平滑区域留下亮斑（补丁中心像素不参与匹配），
+   100/2 这种极限配置建议先小图验证；稳妥用 200/3。
+4. 大图加 `-Xmx`（如 `-Xmx6g`）；当前引擎已把 offsets 排序改成原始类型数组，内存比之前小很多。
+
+关于“按区域处理”：
+
+- 把图像裁到遮罩 bbox + 120px 后，30/500/6 从 140 s 降到 119 s，只快约 15%；
+  视觉上和整图处理基本一致。
+- 原因是耗时由目标像素数决定，裁图并没有减少目标像素；它主要减少语料、`sortedOffsets` 和内存。
+- 当遮罩只集中在整图很小的一块时，裁区域收益更大；可以直接把区域裁出来单独处理后贴回。
 
 ## 测试
 

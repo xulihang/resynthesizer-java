@@ -6,7 +6,8 @@ package resynth;
  * Mirrors refinerThreaded.h and passes.h.
  */
 public final class Refiner {
-    public static final int THREAD_LIMIT = 8;
+    /** Default 8; override with {@code -Dresynth.threads=N}. */
+    public static final int THREAD_LIMIT = Math.max(1, Integer.getInteger("resynth.threads", 8));
     public static final int MAX_PASSES = 6;
     public static final double IMAGE_SYNTH_TERMINATE_FRACTION = 0.1;
     private static final boolean VERBOSE = Boolean.getBoolean("resynth.verbose");
@@ -40,8 +41,9 @@ public final class Refiner {
         int[] ends = prepareRepetitionParameters(targetPoints.len);
         Progress progress = new Progress(Progress.estimatePixelsToSynth(ends), progressCallback, contextInfo);
         Object colorLock = new Object();
+        int maxPasses = Math.max(1, Math.min(MAX_PASSES, parameters.maxPasses));
 
-        for (int pass = 0; pass < MAX_PASSES; pass++) {
+        for (int pass = 0; pass < maxPasses; pass++) {
             int endTargetIndex = ends[pass];
             if (endTargetIndex == 0) break;
 

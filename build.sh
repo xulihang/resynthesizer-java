@@ -23,7 +23,8 @@ build() {
 # Executable jar for external callers (ImageTrans / B4J). Java 8 bytecode so it runs on
 # any JRE the host app ships; no third-party dependencies.
 build_jar() {
-  rm -rf build/lib build/src dist
+  # Only clean our own intermediates: dist/ is the user's drop folder for test images.
+  rm -rf build/lib build/src
   mkdir -p build/lib dist
   "$JAVAC" --release 8 -Xlint:-options -d build/lib src/main/java/resynth/*.java
   cp COPYING build/lib/COPYING

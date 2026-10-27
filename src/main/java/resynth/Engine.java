@@ -139,26 +139,25 @@ public final class Engine {
         // C: 2*width-1; here 2*width-1 with int arithmetic (guint allocatedSize)
         int rowCount = (2 * height - 1);
         int colCount = (2 * width - 1);
-        PointVector offsets = new PointVector(rowCount * colCount);
+        int count = rowCount * colCount;
+
+        // Sort (distance, row-major index) as primitive longs. Boxing indices and sorting
+        // with a Comparator costs gigabytes of Integer objects on large images. Equal
+        // distances keep row-major order, which is what the stable Comparator sort did.
+        long[] order = new long[count];
+        int i = 0;
         for (int y = -height + 1; y < height; y++) {
-            for (int x = -width + 1; x < width; x++) {
-                offsets.add(x, y);
+            for (int x = -width + 1; x < width; x++, i++) {
+                long distance = (long) y * y + (long) x * x;
+                order[i] = (distance << 32) | i;
             }
         }
-        // g_array_sort with lessCartesian. to_sort_result(a<b): -1 if a<b else 1.
-        Integer[] order = new Integer[offsets.len];
-        for (int i = 0; i < offsets.len; i++) order[i] = i;
-        final PointVector finalOffsets = offsets;
-        java.util.Arrays.sort(order, (a, b) -> {
-            long av = (long) finalOffsets.y(a) * finalOffsets.y(a) + (long) finalOffsets.x(a) * finalOffsets.x(a);
-            long bv = (long) finalOffsets.y(b) * finalOffsets.y(b) + (long) finalOffsets.x(b) * finalOffsets.x(b);
-            // C's to_sort_result never returns 0; Java's comparator must be consistent.
-            return Long.compare(av, bv);
-        });
-        PointVector sorted = new PointVector(offsets.len);
-        for (int i = 0; i < offsets.len; i++) {
-            int idx = order[i];
-            sorted.add(offsets.x(idx), offsets.y(idx));
+        java.util.Arrays.sort(order);
+
+        PointVector sorted = new PointVector(count);
+        for (int k = 0; k < count; k++) {
+            int index = (int) order[k];
+            sorted.add(index % colCount - width + 1, index / colCount - height + 1);
         }
         return sorted;
     }
