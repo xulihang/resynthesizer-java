@@ -74,7 +74,8 @@ public final class PngSynth {
                     + maskImage.getHeight() + " differs from image size "
                     + image.getWidth() + "x" + image.getHeight());
         }
-        return healDecoded(image, toMask(maskImage), parameters, progressCallback, contextInfo, cancelFlag);
+        return encodePng(healImage(image, toMask(maskImage), parameters,
+                progressCallback, contextInfo, cancelFlag));
     }
 
     /** Heal a rectangle; the mask is generated internally. */
@@ -97,14 +98,15 @@ public final class PngSynth {
         for (int row = y0; row < y1; row++) {
             Arrays.fill(mask, row * width + x0, row * width + x1, (byte) 0xFF);
         }
-        return healDecoded(image, mask, parameters, progressCallback, contextInfo, cancelFlag);
+        return encodePng(healImage(image, mask, parameters, progressCallback, contextInfo, cancelFlag));
     }
 
     // ------------------------------------------------------------------
 
-    private static byte[] healDecoded(BufferedImage image, byte[] mask, Params parameters,
-                                      Engine.ProgressCallback progressCallback,
-                                      Object contextInfo, CancelFlag cancelFlag) throws IOException {
+    /** In-process heal of a decoded image and a packed 0/0xFF mask. */
+    static BufferedImage healImage(BufferedImage image, byte[] mask, Params parameters,
+                                   Engine.ProgressCallback progressCallback,
+                                   Object contextInfo, CancelFlag cancelFlag) throws IOException {
         int width = image.getWidth(), height = image.getHeight();
         boolean alpha = image.getColorModel().hasAlpha();
         int channels = alpha ? 4 : 3;
@@ -120,7 +122,7 @@ public final class PngSynth {
                 params, progressCallback, contextInfo, cancel);
         if (rc != 0) throw new SynthException(rc);
 
-        return encodePng(fromPixels(pixels, width, height, alpha));
+        return fromPixels(pixels, width, height, alpha);
     }
 
     static boolean isPng(byte[] bytes) {
@@ -178,7 +180,7 @@ public final class PngSynth {
     }
 
     /** Visible, non-black mask pixels become 0xFF (target); everything else stays 0 (corpus). */
-    private static byte[] toMask(BufferedImage maskImage) {
+    static byte[] toMask(BufferedImage maskImage) {
         int width = maskImage.getWidth(), height = maskImage.getHeight();
         byte[] mask = new byte[width * height];
         int[] row = new int[width];

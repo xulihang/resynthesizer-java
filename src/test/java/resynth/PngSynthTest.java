@@ -164,6 +164,58 @@ class PngSynthTest {
     }
 
     @Test
+    void cliRegionModeHealsDisconnectedTargets() throws Exception {
+        Path dir = Files.createTempDirectory("resynth-cli-regions");
+        Path in = dir.resolve("in.png");
+        Path maskPath = dir.resolve("mask.png");
+        Path out = dir.resolve("out.png");
+        int[][] rects = {{8, 8, 12, 10}, {40, 28, 14, 12}};
+
+        BufferedImage clean = pattern();
+        BufferedImage damaged = copy(clean);
+        for (int[] r : rects) {
+            int[] black = new int[r[2]];
+            Arrays.fill(black, 0xFF000000);
+            for (int y = r[1]; y < r[1] + r[3]; y++) damaged.setRGB(r[0], y, r[2], 1, black, 0, r[2]);
+        }
+        BufferedImage maskImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+        int[] mrow = new int[W];
+        Arrays.fill(mrow, 0xFF000000);
+        for (int y = 0; y < H; y++) maskImage.setRGB(0, y, W, 1, mrow, 0, W);
+        for (int[] r : rects) {
+            int[] white = new int[r[2]];
+            Arrays.fill(white, 0xFFFFFFFF);
+            for (int y = r[1]; y < r[1] + r[3]; y++) maskImage.setRGB(r[0], y, r[2], 1, white, 0, r[2]);
+        }
+        Files.write(in, png(damaged));
+        Files.write(maskPath, png(maskImage));
+
+        int rc = HealCli.run(new String[]{"--regions", "--margin", "16", "--cell", "8",
+                in.toString(), maskPath.toString(), out.toString(), "16", "100", "0", "2"});
+
+        assertEquals(0, rc);
+        BufferedImage result = decode(Files.readAllBytes(out));
+        int changed = 0;
+        for (int y = 0; y < H; y++) {
+            for (int x = 0; x < W; x++) {
+                boolean target = false;
+                for (int[] r : rects) {
+                    if (x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]) {
+                        target = true;
+                        break;
+                    }
+                }
+                if (target) {
+                    if (result.getRGB(x, y) != damaged.getRGB(x, y)) changed++;
+                } else {
+                    assertEquals(clean.getRGB(x, y), result.getRGB(x, y));
+                }
+            }
+        }
+        assertEquals(12 * 10 + 14 * 12, changed, "every target pixel must be healed");
+    }
+
+    @Test
     void cliRejectsUnreadableImageAndWritesNothing() throws Exception {
         Path dir = Files.createTempDirectory("resynth-cli-bad");
         Path in = dir.resolve("in.dat");
