@@ -122,21 +122,24 @@ public final class HealCli {
 
     private static int runWhole(String imagePath, String maskPath, String outPath, Params params)
             throws IOException {
+        long start = System.nanoTime();
         byte[] imagePng = toPng(Files.readAllBytes(Paths.get(imagePath)), "image " + imagePath);
         byte[] maskPng = toPng(Files.readAllBytes(Paths.get(maskPath)), "mask " + maskPath);
 
         long t0 = System.nanoTime();
         byte[] healedPng = PngSynth.heal(imagePng, maskPng, params, null, null, null);
-        long ms = (System.nanoTime() - t0) / 1_000_000;
+        long healMs = (System.nanoTime() - t0) / 1_000_000;
 
         write(outPath, healedPng);
+        long totalMs = (System.nanoTime() - start) / 1_000_000;
         System.out.println("healed " + imagePath + " -> " + outPath
-                + " (" + healedPng.length + " bytes, " + ms + " ms)");
+                + " (" + healedPng.length + " bytes, heal " + healMs + " ms, total " + totalMs + " ms)");
         return 0;
     }
 
     private static int runRegions(String imagePath, String maskPath, String outPath, Params params,
                                   int margin, int cell) throws IOException {
+        long start = System.nanoTime();
         BufferedImage image = read(Files.readAllBytes(Paths.get(imagePath)), "image " + imagePath);
         BufferedImage maskImage = read(Files.readAllBytes(Paths.get(maskPath)), "mask " + maskPath);
         int width = image.getWidth(), height = image.getHeight();
@@ -157,7 +160,7 @@ public final class HealCli {
         g.drawImage(image, 0, 0, null);
         g.dispose();
 
-        long t0 = System.nanoTime();
+        long healStart = System.nanoTime();
         long regionPixels = 0;
         for (int[] box : boxes) {
             int x0 = box[0], y0 = box[1], x1 = box[2], y1 = box[3];
@@ -173,16 +176,17 @@ public final class HealCli {
             BufferedImage healed = PngSynth.healImage(crop, cropMask, params, null, null, null);
             composite(out, healed, target, width, x0, y0, rw, rh);
         }
-        long ms = (System.nanoTime() - t0) / 1_000_000;
+        long healMs = (System.nanoTime() - healStart) / 1_000_000;
 
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         if (!ImageIO.write(out, "png", bytes)) throw new IOException("no PNG writer available");
         byte[] png = bytes.toByteArray();
         write(outPath, png);
+        long totalMs = (System.nanoTime() - start) / 1_000_000;
 
         System.out.println("healed " + imagePath + " -> " + outPath
                 + " (" + png.length + " bytes, " + boxes.length + " regions, "
-                + regionPixels + " region px, " + ms + " ms)");
+                + regionPixels + " region px, heal " + healMs + " ms, total " + totalMs + " ms)");
         return 0;
     }
 
